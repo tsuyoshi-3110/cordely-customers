@@ -1,12 +1,26 @@
 "use client";
 
+import { Suspense } from "react";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { siteKeyAtom } from "@/lib/atoms/siteKeyAtom";
 import { resolveSiteKeyByCode } from "@/lib/resolveSiteKey";
 
+// ← 静的化を避ける（どちらか1つでOK。まずは dynamic を推奨）
+export const dynamic = "force-dynamic";
+// export const revalidate = 0;
+
 export default function Page() {
+  // useSearchParams を使う部分を Suspense で包む
+  return (
+    <Suspense fallback={<div className="p-6">Loading…</div>}>
+      <PageInner />
+    </Suspense>
+  );
+}
+
+function PageInner() {
   const router = useRouter();
   const search = useSearchParams();
   const setSiteKey = useSetAtom(siteKeyAtom);
@@ -25,26 +39,18 @@ export default function Page() {
       }
 
       const urlCode = search.get("code");
-      if (urlCode) {
-        setLoading(true);
-        setErr(null);
-        const key = await resolveSiteKeyByCode(urlCode);
-        setLoading(false);
-        if (!key) {
-          setErr("無効なコードです。店舗のQRコードをご確認ください。");
-          return;
-        }
-        setSiteKey(key);
-        router.replace("/menu");
+      if (!urlCode) return;
+
+      setLoading(true);
+      setErr(null);
+      const key = await resolveSiteKeyByCode(urlCode);
+      setLoading(false);
+      if (!key) {
+        setErr("無効なコードです。店舗のQRコードをご確認ください。");
         return;
       }
-
-      // ← ここが追加: 保存済み siteKey があれば自動遷移
-      const stored = typeof window !== "undefined" ? localStorage.getItem("siteKey") : null;
-      if (stored) {
-        setSiteKey(stored);
-        router.replace("/menu");
-      }
+      setSiteKey(key);
+      router.replace("/menu");
     })();
   }, [search, router, setSiteKey]);
 
@@ -79,7 +85,7 @@ export default function Page() {
           />
           <button
             type="submit"
-            className="w-full rounded bg黑 px-3 py-2 text-white disabled:opacity-50"
+            className="w-full rounded bg-black px-3 py-2 text-white disabled:opacity-50"
             disabled={!code.trim()}
           >
             開始
