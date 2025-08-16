@@ -68,6 +68,7 @@ export default function MenuPage() {
   const [doneOpen, setDoneOpen] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [productsReady, setProductsReady] = useState(false);
 
   const localKey = siteKey ? `myOrders:${siteKey}` : "myOrders";
 
@@ -93,45 +94,56 @@ export default function MenuPage() {
   useEffect(() => {
     if (!siteKey) return;
 
+    setProductsReady(false); // ← siteKey切り替え時にリセット
+
     const qy = query(
       collection(db, "products"),
       where("siteKey", "==", siteKey)
     );
-
-    const unsub = onSnapshot(qy, (snap) => {
-      const items = snap.docs.map((d) => {
-        const v = d.data() as any;
-        const base: Product = {
-          productId: Number(v.productId ?? 0),
-          name: String(v.name ?? ""),
-          price: Number(v.price ?? 0),
-          imageUri: String(v.imageUri ?? ""),
-          soldOut: Boolean(v.soldOut ?? false),
-          description: v.description ? String(v.description) : "",
-          taxIncluded: v.taxIncluded == null ? true : Boolean(v.taxIncluded),
-          docId: d.id,
-        };
-        const sortKey =
-          typeof v.sortOrder === "number" ? v.sortOrder : base.productId;
-        return { base, sortKey };
-      });
-
-      items.sort((a, b) => {
-        if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
-        return a.base.productId - b.base.productId;
-      });
-
-      const list = items.map((x) => x.base);
-      setProducts(list);
-
-      setQty((prev) => {
-        const next = { ...prev };
-        list.forEach((p) => {
-          if (next[p.productId] == null) next[p.productId] = 0;
+    const unsub = onSnapshot(
+      qy,
+      (snap) => {
+        const items = snap.docs.map((d) => {
+          const v = d.data() as any;
+          const base: Product = {
+            productId: Number(v.productId ?? 0),
+            name: String(v.name ?? ""),
+            price: Number(v.price ?? 0),
+            imageUri: String(v.imageUri ?? ""),
+            soldOut: Boolean(v.soldOut ?? false),
+            description: v.description ? String(v.description) : "",
+            taxIncluded: v.taxIncluded == null ? true : Boolean(v.taxIncluded),
+            docId: d.id,
+          };
+          const sortKey =
+            typeof v.sortOrder === "number" ? v.sortOrder : base.productId;
+          return { base, sortKey };
         });
-        return next;
-      });
-    });
+
+        items.sort((a, b) =>
+          a.sortKey !== b.sortKey
+            ? a.sortKey - b.sortKey
+            : a.base.productId - b.base.productId
+        );
+
+        const list = items.map((x) => x.base);
+        setProducts(list);
+
+        setQty((prev) => {
+          const next = { ...prev };
+          list.forEach((p) => {
+            if (next[p.productId] == null) next[p.productId] = 0;
+          });
+          return next;
+        });
+
+        setProductsReady(true); // ← ここで読み込み完了
+      },
+      (err) => {
+        console.error("products onSnapshot error:", err);
+        setProductsReady(true); // エラーでもローディングは解除して空表示に
+      }
+    );
 
     return () => unsub();
   }, [siteKey]);
@@ -319,11 +331,23 @@ export default function MenuPage() {
     }
   };
 
-  /* ---------- UI ---------- */
-  if (!products.length) {
+  // 先頭のローディング判定を変更
+  if (!productsReady) {
     return (
       <main className="min-h-[100dvh] grid place-items-center px-4">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-transparent" />
+      </main>
+    );
+  }
+
+  /* ---------- UI ---------- */
+  if (productsReady && products.length === 0) {
+    return (
+      <main className="min-h-[100dvh] grid place-items-center px-4">
+        <p className="text-sm text-gray-600">
+          この店舗にはまだ商品が登録されていません。
+          管理画面から商品を追加してください。
+        </p>
       </main>
     );
   }
