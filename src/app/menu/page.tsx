@@ -3,6 +3,7 @@
 import FcmInit from "@/components/FcmInit";
 import { siteKeyAtom } from "@/lib/atoms/siteKeyAtom";
 import { db } from "@/lib/firebase";
+import { subscribeWebPush } from "@/lib/webpush";
 import {
   addDoc,
   collection,
@@ -89,6 +90,7 @@ export default function MenuPage() {
   const [askNotif, setAskNotif] = useState(false);
 
   const [isIOS, setIsIOS] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
 
   const localKey = siteKey ? `myOrders:${siteKey}` : "myOrders";
 
@@ -98,7 +100,7 @@ export default function MenuPage() {
     return products.filter((p) => p.sectionId === selectedSectionId);
   }, [products, sections, selectedSectionId]);
 
-  /* ---------- 通知サポート判定（iOS Safari は除外） ---------- */
+  // 既存の「通知サポート判定」useEffect を差し替え
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -106,12 +108,19 @@ export default function MenuPage() {
     const ios = /iPhone|iPad|iPod/i.test(ua);
     setIsIOS(ios);
 
+    // PWA（ホーム画面から起動）判定
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      (navigator as any).standalone === true; // iOS Safari 専用
+    setIsStandalone(standalone);
+
     const hasApis =
       "Notification" in window &&
       "serviceWorker" in navigator &&
       "PushManager" in window;
 
-    const supported = hasApis && !ios;
+    // iOS でも PWA(standalone) なら OK
+    const supported = hasApis && (!ios || standalone);
     setNotifSupported(supported);
     if (supported) setNotifGranted(Notification.permission === "granted");
   }, []);
@@ -355,7 +364,9 @@ export default function MenuPage() {
     try {
       const key = siteKey;
       if (!key) {
-        alert("店舗コードが見つかりません。トップに戻ってQRを読み込んでください。");
+        alert(
+          "店舗コードが見つかりません。トップに戻ってQRを読み込んでください。"
+        );
         return;
       }
 
@@ -402,6 +413,11 @@ export default function MenuPage() {
       );
       const waitMin = itemsBefore * 5 + totalItemsLocal * 5;
 
+      const webpushSubId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("webpushSubId")
+          : null;
+
       // 注文保存（FCMトークンも一緒に）
       const ref = await addDoc(collection(db, "orders"), {
         siteKey: key,
@@ -412,6 +428,7 @@ export default function MenuPage() {
         isComp: false,
         createdAt: serverTimestamp(),
         customerFcmToken: fcmToken ?? null,
+        customerWebPushSubId: webpushSubId ?? null, // ★ iPhone(PWA)向けに追加
       });
 
       const newMy: MyOrder = {
@@ -492,35 +509,53 @@ export default function MenuPage() {
           </div>
 
           {/* Push通知の設定（PC/Androidのみボタン表示） */}
+          {/* Push通知の設定 */}
           <div className="mt-2">
-            {isIOS ? (
+            {isIOS && !isStandalone ? (
+              // iPhone で “PWA ではない” ときの案内
               <div className="rounded-md border p-3 text-sm text-gray-700 bg-white">
-                <p className="font-medium">
-                  iPhone ではこのページからのプッシュ通知は使えません。
-                </p>
-                <p className="mt-1">
-                  代替案：メール/LINE通知、またはネイティブアプリをご検討ください。
-                </p>
+                <p className="font-medium">iPhoneで通知を受け取るには：</p>
+                <ol className="mt-1 list-decimal pl-4 space-y-1">
+                  <li>Safariの共有メニューから「ホーム画面に追加」</li>
+                  <li>ホームのアイコンから起動（PWAモード）</li>
+                  <li>この画面で「通知をON」をタップ</li>
+                </ol>
               </div>
             ) : (
               notifSupported &&
               !notifGranted && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setAskNotif(true)}
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                  >
-                    🔔 完成時に通知を受け取る（通知をON）
-                  </button>
-                  {/* ボタン押下時にだけトークン取得 */}
-                  <FcmInit
-                    run={askNotif}
-                    onToken={() => {
-                      setNotifGranted(true);
-                      setAskNotif(false);
-                    }}
-                  />
+                  {/* iOS PWA → Web Push 購読、その他（Android/PC）→ FCM */}
+                  {isIOS ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!siteKey) return alert("店舗コードが未設定です。");
+                        const id = await subscribeWebPush(siteKey);
+                        if (id) setNotifGranted(true);
+                      }}
+                      className="w-full rounded-md border px-3 py-2 text-sm"
+                    >
+                      🔔 完成時に通知を受け取る（iPhone PWA）
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setAskNotif(true)}
+                        className="w-full rounded-md border px-3 py-2 text-sm"
+                      >
+                        🔔 完成時に通知を受け取る（通知をON）
+                      </button>
+                      <FcmInit
+                        run={askNotif}
+                        onToken={() => {
+                          setNotifGranted(true);
+                          setAskNotif(false);
+                        }}
+                      />
+                    </>
+                  )}
                 </>
               )
             )}
