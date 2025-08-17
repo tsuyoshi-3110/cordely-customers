@@ -1,5 +1,6 @@
 "use client";
 
+import FcmInit from "@/components/FcmInit";
 import { siteKeyAtom } from "@/lib/atoms/siteKeyAtom";
 import { db } from "@/lib/firebase";
 import {
@@ -84,6 +85,10 @@ export default function MenuPage() {
   const [productsReady, setProductsReady] = useState(false);
   const [isOpen, setIsOpen] = useState<boolean | null>(null);
 
+  const [notifSupported, setNotifSupported] = useState(false);
+  const [notifGranted, setNotifGranted] = useState(false);
+  const [askNotif, setAskNotif] = useState(false);
+
   const localKey = siteKey ? `myOrders:${siteKey}` : "myOrders";
 
   const displayProducts = useMemo(() => {
@@ -91,6 +96,47 @@ export default function MenuPage() {
       return products;
     return products.filter((p) => p.sectionId === selectedSectionId);
   }, [products, sections, selectedSectionId]);
+
+  // マウント時にサポート/許可状況を反映
+  useEffect(() => {
+    const ok = typeof window !== "undefined" && "Notification" in window;
+    setNotifSupported(ok);
+    if (ok) setNotifGranted(Notification.permission === "granted");
+  }, []);
+
+  // クリックで通知許可をリクエスト
+  const enableNotifications = async () => {
+    try {
+      const res = await Notification.requestPermission();
+      const granted = res === "granted";
+      setNotifGranted(granted);
+      if (!granted)
+        alert("通知が許可されませんでした。ブラウザの設定をご確認ください。");
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // 実際に通知を出すヘルパ
+  const notifyUser = (orderNo: number) => {
+    try {
+      if (notifSupported && Notification.permission === "granted") {
+        const n = new Notification("ご注文ができあがりました！", {
+          body: `注文番号: ${orderNo} をお受け取りください`,
+          tag: `order-${orderNo}`, // 同じタグは置き換えられる
+          // renotify: true, // ← 外す
+        });
+        n.onclick = () => window.focus();
+      } else {
+        document.title = `🔔 注文 ${orderNo} 完成！`;
+        try {
+          (navigator as any).vibrate?.(200);
+        } catch {}
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // isOpen 購読
   useEffect(() => {
@@ -290,6 +336,33 @@ export default function MenuPage() {
     return () => unsubs.forEach((u) => u());
   }, [myOrders, localKey]);
 
+  useEffect(() => {
+    if (!myOrders.length) return;
+    const unsubs = myOrders.map((mo) => {
+      const ref = doc(db, "orders", mo.docId);
+      return onSnapshot(ref, (snap) => {
+        const data = snap.data();
+        if (data?.isComp && !mo.notified) {
+          // ★ 通知を出す
+          notifyUser(mo.orderNo);
+
+          setCompletedOrderNo(mo.orderNo);
+          setFinishOpen(true);
+          setMyOrders((prev) => {
+            const next = prev
+              .map((x) =>
+                x.orderNo === mo.orderNo ? { ...x, notified: true } : x
+              )
+              .filter((x) => x.orderNo !== mo.orderNo);
+            localStorage.setItem(localKey, JSON.stringify(next));
+            return next;
+          });
+        }
+      });
+    });
+    return () => unsubs.forEach((u) => u());
+  }, [myOrders, localKey, notifSupported]);
+
   /* ---------- 合計 ---------- */
   const totalItems = useMemo(
     () => Object.values(qty).reduce((a, b) => a + b, 0),
@@ -325,6 +398,11 @@ export default function MenuPage() {
         return;
       }
 
+      // ★ ここでトークンを取得
+      const fcmToken =
+        typeof window !== "undefined" ? localStorage.getItem("fcmToken") : null;
+
+      // 現在の未完了注文を取得（待ち時間などの計算用）
       const snap = await getDocs(
         query(
           collection(db, "orders"),
@@ -335,8 +413,10 @@ export default function MenuPage() {
       );
       const current = snap.docs.map((d) => d.data());
 
+      // 採番
       const orderNo = await getNextOrderNoForSite(key);
 
+      // 注文アイテムを作成
       const items = products
         .filter((p) => (qty[p.productId] || 0) > 0)
         .map((p) => ({
@@ -361,6 +441,7 @@ export default function MenuPage() {
       );
       const waitMin = itemsBefore * 5 + totalItemsLocal * 5;
 
+      // ★ 注文保存時に customerFcmToken を一緒に保存
       const ref = await addDoc(collection(db, "orders"), {
         siteKey: key,
         orderNo,
@@ -369,8 +450,10 @@ export default function MenuPage() {
         totalPrice: totalPriceLocal,
         isComp: false,
         createdAt: serverTimestamp(),
+        customerFcmToken: fcmToken ?? null, // ← 追加
       });
 
+      // ローカルの自分の注文情報を更新
       const newMy: MyOrder = {
         orderNo,
         docId: ref.id,
@@ -385,6 +468,7 @@ export default function MenuPage() {
         return next;
       });
 
+      // カートをリセット & 完了モーダル
       setQty(Object.fromEntries(products.map((p) => [p.productId, 0])));
       setDoneOpen(true);
     } catch (e) {
@@ -426,6 +510,27 @@ export default function MenuPage() {
         </div>
       )}
 
+      {notifSupported && !notifGranted && (
+        <>
+          <button
+            type="button"
+            onClick={() => setAskNotif(true)}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          >
+            🔔 完成時に通知を受け取る（通知をON）
+          </button>
+
+          {/* ボタン押下時にだけ走る */}
+          <FcmInit
+            run={askNotif}
+            onToken={() => {
+              setNotifGranted(true);
+              setAskNotif(false); // 1回走ったら停止
+            }}
+          />
+        </>
+      )}
+
       {!siteKey ? (
         <div className="min-h-[60vh] grid place-items-center px-4">
           <p className="text-sm text-gray-600">
@@ -450,6 +555,18 @@ export default function MenuPage() {
               </p>
             )}
           </div>
+
+          {notifSupported && !notifGranted && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={enableNotifications}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+              >
+                🔔 完成時に通知を受け取る（通知をON）
+              </button>
+            </div>
+          )}
 
           {/* セクションピッカー（セクションがあるときだけ表示） */}
           {sections.length > 0 && (
