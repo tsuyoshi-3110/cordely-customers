@@ -1,10 +1,8 @@
 // app/page.tsx あるいは app/menu/page.tsx
 "use client";
 
-import FcmInit from "@/components/FcmInit";
 import { siteKeyAtom } from "@/lib/atoms/siteKeyAtom";
 import { db } from "@/lib/firebase";
-import { subscribeWebPush } from "@/lib/webpush";
 import {
   addDoc,
   collection,
@@ -92,12 +90,12 @@ export default function MenuPage() {
   const [isOpen, setIsOpen] = useState<boolean | null>(null);
 
   // 通知関連状態（出し分け）
-  const [notifSupported, setNotifSupported] = useState(false);
-  const [notifGranted, setNotifGranted] = useState(false);
-  const [askNotif, setAskNotif] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
-  const [iosSubscribed, setIosSubscribed] = useState(false);
+  // const [notifSupported, setNotifSupported] = useState(false);
+  // const [notifGranted, setNotifGranted] = useState(false);
+  // const [askNotif, setAskNotif] = useState(false);
+  // const [isIOS, setIsIOS] = useState(false);
+  // const [isStandalone, setIsStandalone] = useState(false);
+  // const [iosSubscribed, setIosSubscribed] = useState(false);
 
   const localKey = siteKey ? `myOrders:${siteKey}` : "myOrders";
 
@@ -108,55 +106,55 @@ export default function MenuPage() {
   }, [products, sections, selectedSectionId]);
 
   /* ---------- 通知サポート判定（iOSはPWAのみ許可） ---------- */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  // useEffect(() => {
+  //   if (typeof window === "undefined") return;
 
-    const ua = navigator.userAgent || "";
-    // iPadOSが Mac UA を名乗るケースも拾う
-    const isiOS =
-      /iPhone|iPad|iPod/i.test(ua) ||
-      (ua.includes("Mac") && (navigator as any).maxTouchPoints > 1);
+  //   const ua = navigator.userAgent || "";
+  //   // iPadOSが Mac UA を名乗るケースも拾う
+  //   const isiOS =
+  //     /iPhone|iPad|iPod/i.test(ua) ||
+  //     (ua.includes("Mac") && (navigator as any).maxTouchPoints > 1);
 
-    const standalone =
-      window.matchMedia?.("(display-mode: standalone)").matches ||
-      // iOS Safari 独自プロパティ
-      (navigator as unknown as { standalone?: boolean }).standalone === true;
+  //   const standalone =
+  //     window.matchMedia?.("(display-mode: standalone)").matches ||
+  //     // iOS Safari 独自プロパティ
+  //     (navigator as unknown as { standalone?: boolean }).standalone === true;
 
-    setIsIOS(isiOS);
-    setIsStandalone(standalone);
+  //   setIsIOS(isiOS);
+  //   setIsStandalone(standalone);
 
-    const hasSW = "serviceWorker" in navigator;
-    const hasPush = "PushManager" in window;
-    const hasNotif = "Notification" in window;
+  //   const hasSW = "serviceWorker" in navigator;
+  //   const hasPush = "PushManager" in window;
+  //   const hasNotif = "Notification" in window;
 
-    const supported = hasSW && hasPush && hasNotif && (!isiOS || standalone);
-    setNotifSupported(supported);
-    if (supported) setNotifGranted(Notification.permission === "granted");
+  //   const supported = hasSW && hasPush && hasNotif && (!isiOS || standalone);
+  //   setNotifSupported(supported);
+  //   if (supported) setNotifGranted(Notification.permission === "granted");
 
-    try {
-      setIosSubscribed(!!localStorage.getItem("webpushSubId"));
-    } catch {}
-  }, []);
+  //   try {
+  //     setIosSubscribed(!!localStorage.getItem("webpushSubId"));
+  //   } catch {}
+  // }, []);
 
   // 実際に通知を出す（前景フォールバック）
-  const notifyUser = (orderNo: number) => {
-    try {
-      if (notifSupported && Notification.permission === "granted") {
-        const n = new Notification("ご注文ができあがりました！", {
-          body: `注文番号: ${orderNo} をお受け取りください`,
-          tag: `order-${orderNo}`,
-        });
-        n.onclick = () => window.focus();
-      } else {
-        document.title = `🔔 注文 ${orderNo} 完成！`;
-        if ("vibrate" in navigator && typeof navigator.vibrate === "function") {
-          navigator.vibrate(200);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  // const notifyUser = (orderNo: number) => {
+  //   try {
+  //     if (notifSupported && Notification.permission === "granted") {
+  //       const n = new Notification("ご注文ができあがりました！", {
+  //         body: `注文番号: ${orderNo} をお受け取りください`,
+  //         tag: `order-${orderNo}`,
+  //       });
+  //       n.onclick = () => window.focus();
+  //     } else {
+  //       document.title = `🔔 注文 ${orderNo} 完成！`;
+  //       if ("vibrate" in navigator && typeof navigator.vibrate === "function") {
+  //         navigator.vibrate(200);
+  //       }
+  //     }
+  //   } catch (e) {
+  //     console.error(e);
+  //   }
+  // };
 
   /* ---------- isOpen 購読 ---------- */
   useEffect(() => {
@@ -344,7 +342,7 @@ export default function MenuPage() {
         const data = snap.data() as { isComp?: boolean } | undefined;
         if (data?.isComp && !mo.notified) {
           // 通知（前景フォールバック）
-          notifyUser(mo.orderNo);
+          // notifyUser(mo.orderNo);
 
           setCompletedOrderNo(mo.orderNo);
           setFinishOpen(true);
@@ -361,7 +359,7 @@ export default function MenuPage() {
       });
     });
     return () => unsubs.forEach((u) => u());
-  }, [myOrders, localKey, notifSupported]);
+  }, [myOrders, localKey]);
 
   /* ---------- 合計 ---------- */
   const totalItems = useMemo(
@@ -533,7 +531,7 @@ export default function MenuPage() {
           </div>
 
           {/* Push通知の設定（iPhone PWA と Android/PC を出し分け） */}
-          <div className="mt-2">
+          {/* <div className="mt-2">
             {isIOS ? (
               iosSubscribed ? (
                 <div className="rounded-md border p-3 text-sm bg-white text-teal-700">
@@ -606,7 +604,7 @@ export default function MenuPage() {
                 </>
               )
             )}
-          </div>
+          </div> */}
 
           {/* セクションピッカー */}
           {sections.length > 0 && (
