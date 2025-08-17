@@ -69,8 +69,30 @@ export default function MenuPage() {
   const [finishOpen, setFinishOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [productsReady, setProductsReady] = useState(false);
+  const [isOpen, setIsOpen] = useState<boolean | null>(null);
 
   const localKey = siteKey ? `myOrders:${siteKey}` : "myOrders";
+
+  // 任意の useEffect 群のところに追加（siteKeyが確定してから購読）
+  useEffect(() => {
+    if (!siteKey) {
+      setIsOpen(true); // siteKey未確定時は一旦OPEN扱い
+      return;
+    }
+    const ref = doc(db, "siteSettingsEditable", siteKey);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        const data = snap.data() as { isOpen?: boolean } | undefined;
+        setIsOpen(data?.isOpen ?? true); // 未設定ならOPEN
+      },
+      (e) => {
+        console.error("isOpen onSnapshot error:", e);
+        setIsOpen(true);
+      }
+    );
+    return () => unsub();
+  }, [siteKey]);
 
   /* ---------- 初回復元 / 再表示復元 ---------- */
   useEffect(() => {
@@ -233,6 +255,10 @@ export default function MenuPage() {
 
   /* ---------- イベント ---------- */
   const openConfirm = () => {
+    if (isOpen === false) {
+      alert("現在はクローズ中です。時間をおいてお試しください。");
+      return;
+    }
     if (totalItems === 0) {
       alert("数量を入力してください。");
       return;
@@ -354,6 +380,14 @@ export default function MenuPage() {
 
   return (
     <main className="mx-auto max-w-md px-3 pb-28 pt-4">
+      {isOpen === false && (
+        <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-sm grid place-items-center">
+          <p className="text-white text-6xl md:text-8xl font-extrabold tracking-widest select-none">
+            CLOSE
+          </p>
+        </div>
+      )}
+
       {!siteKey ? (
         <div className="min-h-[60vh] grid place-items-center px-4">
           <p className="text-sm text-gray-600">
@@ -499,7 +533,7 @@ export default function MenuPage() {
               </div>
               <button
                 onClick={openConfirm}
-                disabled={submitting}
+                disabled={submitting || isOpen === false}
                 className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white disabled:opacity-50"
               >
                 注文する
