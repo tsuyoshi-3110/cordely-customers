@@ -1,3 +1,4 @@
+// app/page.tsx あるいは app/menu/page.tsx
 "use client";
 
 import FcmInit from "@/components/FcmInit";
@@ -18,7 +19,13 @@ import {
 } from "firebase/firestore";
 import { useAtomValue } from "jotai";
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 const ALL_SECTIONS = "__ALL__";
 
@@ -49,6 +56,11 @@ type MyOrder = {
   waitMinutes?: number;
 };
 
+type ActiveOrder = {
+  orderNo: number;
+  totalItems?: number;
+};
+
 /* ---------- ヘルパ ---------- */
 async function getNextOrderNoForSite(siteKey: string): Promise<number> {
   const ref = doc(db, "counters", siteKey);
@@ -71,7 +83,7 @@ export default function MenuPage() {
     useState<string>(ALL_SECTIONS);
 
   const [qty, setQty] = useState<Record<number, number>>({});
-  const [activeOrders, setActiveOrders] = useState<any[]>([]);
+  const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([]);
   const [currentNo, setCurrentNo] = useState(0);
 
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
@@ -85,12 +97,13 @@ export default function MenuPage() {
   const [productsReady, setProductsReady] = useState(false);
   const [isOpen, setIsOpen] = useState<boolean | null>(null);
 
+  // 通知関連状態（出し分け）
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifGranted, setNotifGranted] = useState(false);
   const [askNotif, setAskNotif] = useState(false);
-
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [iosSubscribed, setIosSubscribed] = useState(false);
 
   const localKey = siteKey ? `myOrders:${siteKey}` : "myOrders";
 
@@ -100,7 +113,7 @@ export default function MenuPage() {
     return products.filter((p) => p.sectionId === selectedSectionId);
   }, [products, sections, selectedSectionId]);
 
-  // 既存の「通知サポート判定」useEffect を差し替え
+  /* ---------- 通知サポート判定（iOSはPWAのみ許可） ---------- */
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -108,10 +121,10 @@ export default function MenuPage() {
     const ios = /iPhone|iPad|iPod/i.test(ua);
     setIsIOS(ios);
 
-    // PWA（ホーム画面から起動）判定
     const standalone =
-      window.matchMedia?.("(display-mode: standalone)").matches ||
-      (navigator as any).standalone === true; // iOS Safari 専用
+      (window.matchMedia?.("(display-mode: standalone)").matches ?? false) ||
+      // iOS Safari 独自プロパティ
+      ((navigator as unknown as { standalone?: boolean }).standalone === true);
     setIsStandalone(standalone);
 
     const hasApis =
@@ -119,26 +132,32 @@ export default function MenuPage() {
       "serviceWorker" in navigator &&
       "PushManager" in window;
 
-    // iOS でも PWA(standalone) なら OK
+    // iOS は PWA(standalone) の時だけ OK
     const supported = hasApis && (!ios || standalone);
     setNotifSupported(supported);
     if (supported) setNotifGranted(Notification.permission === "granted");
+
+    try {
+      setIosSubscribed(!!localStorage.getItem("webpushSubId"));
+    } catch {
+      // no-op
+    }
   }, []);
 
-  // 実際に通知を出す（前景用フォールバック）
+  // 実際に通知を出す（前景フォールバック）
   const notifyUser = (orderNo: number) => {
     try {
       if (notifSupported && Notification.permission === "granted") {
         const n = new Notification("ご注文ができあがりました！", {
           body: `注文番号: ${orderNo} をお受け取りください`,
-          tag: `order-${orderNo}`, // 同じタグは置き換え
+          tag: `order-${orderNo}`,
         });
         n.onclick = () => window.focus();
       } else {
         document.title = `🔔 注文 ${orderNo} 完成！`;
-        try {
-          (navigator as any).vibrate?.(200);
-        } catch {}
+        if ("vibrate" in navigator && typeof navigator.vibrate === "function") {
+          navigator.vibrate(200);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -170,13 +189,17 @@ export default function MenuPage() {
     try {
       const saved = localStorage.getItem(localKey);
       if (saved) setMyOrders(JSON.parse(saved));
-    } catch {}
+    } catch {
+      // no-op
+    }
     const onVis = () => {
       if (document.visibilityState === "visible") {
         try {
           const saved = localStorage.getItem(localKey);
           if (saved) setMyOrders(JSON.parse(saved));
-        } catch {}
+        } catch {
+          // no-op
+        }
       }
     };
     document.addEventListener("visibilitychange", onVis);
@@ -195,12 +218,14 @@ export default function MenuPage() {
       qy,
       (snap) => {
         const arr: Section[] = snap.docs.map((d, i) => {
-          const v = d.data() as any;
-          return {
+          const v = d.data() as Record<string, unknown>;
+          const name = typeof v.name === "string" ? v.name : "";
+          const sortIndex =
+            typeof v.sortIndex === "number" ? v.sortIndex : (i + 1) * 1000;
+        return {
             id: d.id,
-            name: String(v.name ?? ""),
-            sortIndex:
-              typeof v.sortIndex === "number" ? v.sortIndex : (i + 1) * 1000,
+            name,
+            sortIndex,
           };
         });
         setSections(arr);
@@ -234,17 +259,32 @@ export default function MenuPage() {
       qy,
       (snap) => {
         const list: Product[] = snap.docs.map((d) => {
-          const v = d.data() as any;
+          const v = d.data() as Record<string, unknown>;
+          const productId =
+            typeof v.productId === "number" ? v.productId : 0;
+          const name = typeof v.name === "string" ? v.name : "";
+          const price = typeof v.price === "number" ? v.price : 0;
+          const imageUri =
+            typeof v.imageUri === "string" ? v.imageUri : "";
+          const soldOut =
+            typeof v.soldOut === "boolean" ? v.soldOut : false;
+          const description =
+            typeof v.description === "string" ? v.description : "";
+          const taxIncluded =
+            v.taxIncluded == null ? true : Boolean(v.taxIncluded);
+          const sectionId =
+            typeof v.sectionId === "string" ? v.sectionId : null;
+
           return {
-            productId: Number(v.productId ?? 0),
-            name: String(v.name ?? ""),
-            price: Number(v.price ?? 0),
-            imageUri: String(v.imageUri ?? ""),
-            soldOut: Boolean(v.soldOut ?? false),
-            description: v.description ? String(v.description) : "",
-            taxIncluded: v.taxIncluded == null ? true : Boolean(v.taxIncluded),
+            productId,
+            name,
+            price,
+            imageUri,
+            soldOut,
+            description,
+            taxIncluded,
             docId: d.id,
-            sectionId: typeof v.sectionId === "string" ? v.sectionId : null,
+            sectionId,
           };
         });
 
@@ -283,7 +323,9 @@ export default function MenuPage() {
         setCurrentNo(0);
         return;
       }
-      const list = snap.docs.map((d) => d.data());
+      const list = snap.docs.map(
+        (d) => d.data() as ActiveOrder
+      );
       setActiveOrders(list);
       setCurrentNo(list[0]?.orderNo ?? 0);
     });
@@ -293,13 +335,13 @@ export default function MenuPage() {
   useEffect(() => {
     if (!activeOrders.length || !myOrders.length) return;
     const updated = myOrders.map((mo) => {
-      const before = activeOrders.filter((o: any) => o.orderNo < mo.orderNo);
+      const before = activeOrders.filter((o) => o.orderNo < mo.orderNo);
       const itemsBefore = before.reduce(
-        (s: number, o: any) => s + (o.totalItems || 0),
+        (s, o) => s + (o.totalItems ?? 0),
         0
       );
       const selfItems =
-        activeOrders.find((o: any) => o.orderNo === mo.orderNo)?.totalItems ??
+        activeOrders.find((o) => o.orderNo === mo.orderNo)?.totalItems ??
         mo.totalItems;
       return { ...mo, waitMinutes: itemsBefore * 5 + selfItems * 5 };
     });
@@ -313,7 +355,7 @@ export default function MenuPage() {
     const unsubs = myOrders.map((mo) => {
       const ref = doc(db, "orders", mo.docId);
       return onSnapshot(ref, (snap) => {
-        const data = snap.data();
+        const data = snap.data() as { isComp?: boolean } | undefined;
         if (data?.isComp && !mo.notified) {
           // 通知（前景フォールバック）
           notifyUser(mo.orderNo);
@@ -370,9 +412,13 @@ export default function MenuPage() {
         return;
       }
 
-      // ここで FCM token を拾う（あれば）
+      // ここで FCM token / iOS WebPush subId を拾う
       const fcmToken =
         typeof window !== "undefined" ? localStorage.getItem("fcmToken") : null;
+      const webpushSubId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("webpushSubId")
+          : null;
 
       // 現在の未完了注文（待ち時間計算用）
       const snap = await getDocs(
@@ -383,7 +429,7 @@ export default function MenuPage() {
           orderBy("orderNo", "asc")
         )
       );
-      const current = snap.docs.map((d) => d.data());
+      const current = snap.docs.map((d) => d.data() as ActiveOrder);
 
       // 採番
       const orderNo = await getNextOrderNoForSite(key);
@@ -408,17 +454,12 @@ export default function MenuPage() {
       const totalPriceLocal = items.reduce((s, it) => s + it.subtotal, 0);
 
       const itemsBefore = current.reduce(
-        (s: number, o: any) => s + (o.totalItems || 0),
+        (s, o) => s + (o.totalItems ?? 0),
         0
       );
       const waitMin = itemsBefore * 5 + totalItemsLocal * 5;
 
-      const webpushSubId =
-        typeof window !== "undefined"
-          ? localStorage.getItem("webpushSubId")
-          : null;
-
-      // 注文保存（FCMトークンも一緒に）
+      // 注文保存（FCMトークン / iOS WebPush 購読ID も一緒に）
       const ref = await addDoc(collection(db, "orders"), {
         siteKey: key,
         orderNo,
@@ -428,7 +469,7 @@ export default function MenuPage() {
         isComp: false,
         createdAt: serverTimestamp(),
         customerFcmToken: fcmToken ?? null,
-        customerWebPushSubId: webpushSubId ?? null, // ★ iPhone(PWA)向けに追加
+        customerWebPushSubId: webpushSubId ?? null,
       });
 
       const newMy: MyOrder = {
@@ -508,54 +549,76 @@ export default function MenuPage() {
             )}
           </div>
 
-          {/* Push通知の設定（PC/Androidのみボタン表示） */}
-          {/* Push通知の設定 */}
+          {/* Push通知の設定（iPhone PWA と Android/PC を出し分け） */}
           <div className="mt-2">
-            {isIOS && !isStandalone ? (
-              // iPhone で “PWA ではない” ときの案内
-              <div className="rounded-md border p-3 text-sm text-gray-700 bg-white">
-                <p className="font-medium">iPhoneで通知を受け取るには：</p>
-                <ol className="mt-1 list-decimal pl-4 space-y-1">
-                  <li>Safariの共有メニューから「ホーム画面に追加」</li>
-                  <li>ホームのアイコンから起動（PWAモード）</li>
-                  <li>この画面で「通知をON」をタップ</li>
-                </ol>
-              </div>
+            {isIOS ? (
+              // ---- iPhone（PWA）用 ----
+              isStandalone ? (
+                iosSubscribed ? (
+                  <div className="rounded-md border p-3 text-sm bg-white text-teal-700">
+                    通知は<strong>ON</strong>になっています。出来上がり時に通知します。
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    onClick={async () => {
+                      try {
+                        if (!siteKey) {
+                          alert("店舗コードが未設定です。");
+                          return;
+                        }
+                        const id = await subscribeWebPush(siteKey); // iPhone PWA: 標準Web Push購読
+                        if (id) {
+                          setIosSubscribed(true);
+                          alert("通知をONにしました。");
+                        } else {
+                          alert(
+                            "通知が許可されませんでした。設定から許可してください。"
+                          );
+                        }
+                      } catch (e) {
+                        console.error(e);
+                        alert("通知の有効化に失敗しました。");
+                      }
+                    }}
+                  >
+                    🔔（iPhone PWA）完成時に通知を受け取る（通知をON）
+                  </button>
+                )
+              ) : (
+                // PWAで開いていない（Safari直開き）場合の案内
+                <div className="rounded-md border p-3 text-sm bg-white">
+                  <p className="font-medium mb-1">iPhoneで通知を使うには：</p>
+                  <ol className="list-decimal ml-5 space-y-1">
+                    <li>Safariでこのページを開く</li>
+                    <li>
+                      共有メニュー → <strong>ホーム画面に追加</strong>
+                    </li>
+                    <li>ホームのアイコンから起動して、ここで通知をON</li>
+                  </ol>
+                </div>
+              )
             ) : (
+              // ---- Android / PC（FCM）用 ----
               notifSupported &&
               !notifGranted && (
                 <>
-                  {/* iOS PWA → Web Push 購読、その他（Android/PC）→ FCM */}
-                  {isIOS ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!siteKey) return alert("店舗コードが未設定です。");
-                        const id = await subscribeWebPush(siteKey);
-                        if (id) setNotifGranted(true);
-                      }}
-                      className="w-full rounded-md border px-3 py-2 text-sm"
-                    >
-                      🔔 完成時に通知を受け取る（iPhone PWA）
-                    </button>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setAskNotif(true)}
-                        className="w-full rounded-md border px-3 py-2 text-sm"
-                      >
-                        🔔 完成時に通知を受け取る（通知をON）
-                      </button>
-                      <FcmInit
-                        run={askNotif}
-                        onToken={() => {
-                          setNotifGranted(true);
-                          setAskNotif(false);
-                        }}
-                      />
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAskNotif(true)}
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                  >
+                    🔔 完成時に通知を受け取る（通知をON）
+                  </button>
+                  {/* ボタン押下時だけFCMトークン取得 */}
+                  <FcmInit
+                    run={askNotif}
+                    onToken={() => {
+                      setNotifGranted(true);
+                      setAskNotif(false);
+                    }}
+                  />
                 </>
               )
             )}
@@ -800,7 +863,7 @@ function Modal({
   onClose,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement | null>(null);

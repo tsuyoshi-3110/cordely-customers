@@ -16,7 +16,7 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(title, {
       body,
       data: { url },
-      icon: "/icons/icon-192.png",
+      icon: "/cordelyLogo.png",
       tag: data.tag || "order-ready"
     })
   );
