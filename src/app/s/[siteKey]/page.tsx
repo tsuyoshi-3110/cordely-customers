@@ -1,31 +1,41 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
-import { useParams } from "next/navigation";
-import { useSetAtom, useAtom, useAtomValue } from "jotai";
-import { siteKeyAtom } from "@/lib/atoms/siteKeyAtom";
-import { addToCartAtom, cartAtom, cartTotalPriceAtom, cartTotalQtyAtom, clearCartAtom } from "@/lib/atoms/cartAtom";
-import type { Product } from "@/lib/types";
-import { toInclusive } from "@/lib/price";
-import { db } from "@/lib/firebase";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  addToCartAtom,
+  cartAtom,
+  cartTotalPriceAtom,
+  cartTotalQtyAtom,
+  clearCartAtom,
+} from "@/lib/atoms/cartAtom";
+import { siteKeyAtom } from "@/lib/atoms/siteKeyAtom";
+import { db } from "@/lib/firebase";
+import { toInclusive } from "@/lib/price";
+import type { Product } from "@/lib/types";
+import {
+  addDoc,
   collection,
+  doc,
   onSnapshot,
   orderBy,
   query,
-  where,
-  addDoc,
-  serverTimestamp,
-  doc,
   runTransaction,
-  getDoc,
-  setDoc,
+  serverTimestamp,
+  where,
 } from "firebase/firestore";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Badge } from "@/components/ui/badge";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import Image from "next/image";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export default function CustomerMenuPage() {
@@ -55,24 +65,28 @@ export default function CustomerMenuPage() {
       where("siteKey", "==", sk),
       orderBy("productId", "asc")
     );
-    const unsub = onSnapshot(qy, (snap) => {
-      const arr: Product[] = snap.docs.map((d) => {
-        const data = d.data() as any;
-        return {
-          docId: d.id,
-          productId: Number(data.productId ?? 0),
-          name: data.name,
-          price: Number(data.price ?? 0),
-          taxIncluded: Boolean(data.taxIncluded ?? true),
-          imageUri: data.imageUri,
-          description: data.description || "",
-          soldOut: Boolean(data.soldOut ?? false),
-          siteKey: sk,
-        };
-      });
-      setProducts(arr);
-      setLoading(false);
-    }, () => setLoading(false));
+    const unsub = onSnapshot(
+      qy,
+      (snap) => {
+        const arr: Product[] = snap.docs.map((d) => {
+          const data = d.data() as any;
+          return {
+            docId: d.id,
+            productId: Number(data.productId ?? 0),
+            name: data.name,
+            price: Number(data.price ?? 0),
+            taxIncluded: Boolean(data.taxIncluded ?? true),
+            imageUri: data.imageUri,
+            description: data.description || "",
+            soldOut: Boolean(data.soldOut ?? false),
+            siteKey: sk,
+          };
+        });
+        setProducts(arr);
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
     return () => unsub();
   }, [sk]);
 
@@ -141,35 +155,40 @@ export default function CustomerMenuPage() {
         {products.map((p) => {
           const price = displayPrice(p);
           const disabled = p.soldOut;
-        return (
-          <Card key={p.docId} className="overflow-hidden">
-            <div className="relative aspect-square">
-              <Image
-                src={p.imageUri}
-                alt={p.name}
-                fill
-                className="object-cover"
-                sizes="(max-width:640px) 50vw, 33vw"
-              />
-              {disabled && (
-                <div className="absolute inset-0 grid place-items-center bg-black/40">
-                  <Badge variant="secondary" className="text-base">売切</Badge>
-                </div>
-              )}
-            </div>
-            <div className="p-2">
-              <p className="line-clamp-1 text-sm font-medium">{p.name}</p>
-              <p className="text-sm text-gray-600">¥{price.toLocaleString()}</p>
-              <Button
-                disabled={disabled}
-                onClick={() => addToCart({ product: p, displayPrice: price })}
-                className="mt-2 w-full"
-              >
-                追加
-              </Button>
-            </div>
-          </Card>
-        )})}
+          return (
+            <Card key={p.docId} className="overflow-hidden">
+              <div className="relative aspect-square">
+                <Image
+                  src={p.imageUri}
+                  alt={p.name}
+                  fill
+                  className="object-cover"
+                  sizes="(max-width:640px) 50vw, 33vw"
+                />
+                {disabled && (
+                  <div className="absolute inset-0 grid place-items-center bg-black/40">
+                    <Badge variant="secondary" className="text-base">
+                      売切
+                    </Badge>
+                  </div>
+                )}
+              </div>
+              <div className="p-2">
+                <p className="line-clamp-1 text-sm font-medium">{p.name}</p>
+                <p className="text-sm text-gray-600">
+                  ¥{price.toLocaleString("ja-JP")}
+                </p>
+                <Button
+                  disabled={disabled}
+                  onClick={() => addToCart({ product: p, displayPrice: price })}
+                  className="mt-2 w-full"
+                >
+                  追加
+                </Button>
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       {/* カート */}
@@ -177,7 +196,7 @@ export default function CustomerMenuPage() {
         <Sheet>
           <SheetTrigger asChild>
             <Button className="shadow-lg">
-              カート ({totalQty}) ¥{totalPrice.toLocaleString()}
+              カート ({totalQty}) ¥{totalPrice.toLocaleString("ja-JP")}
             </Button>
           </SheetTrigger>
           <SheetContent className="w-96 max-w-[95vw]">
@@ -185,14 +204,23 @@ export default function CustomerMenuPage() {
               <SheetTitle>ご注文内容</SheetTitle>
             </SheetHeader>
             <div className="mt-4 space-y-3">
-              {items.length === 0 && <p className="text-sm text-gray-500">カートは空です</p>}
+              {items.length === 0 && (
+                <p className="text-sm text-gray-500">カートは空です</p>
+              )}
               {items.map((l) => (
-                <div key={l.docId} className="flex items-center justify-between rounded border p-2">
+                <div
+                  key={l.docId}
+                  className="flex items-center justify-between rounded border p-2"
+                >
                   <div>
                     <p className="text-sm font-medium">{l.name}</p>
-                    <p className="text-xs text-gray-600">¥{l.price.toLocaleString()} × {l.qty}</p>
+                    <p className="text-xs text-gray-600">
+                      ¥{l.price.toLocaleString("ja-JP")} × {l.qty}
+                    </p>
                   </div>
-                  <p className="text-sm font-semibold">¥{(l.price * l.qty).toLocaleString()}</p>
+                  <p className="text-sm font-semibold">
+                    ¥{(l.price * l.qty).toLocaleString("ja-JP")}
+                  </p>
                 </div>
               ))}
             </div>
@@ -204,13 +232,23 @@ export default function CustomerMenuPage() {
               </div>
               <div className="mt-1 flex items-center justify-between">
                 <p className="text-base font-medium">合計金額</p>
-                <p className="text-base font-bold">¥{totalPrice.toLocaleString()}</p>
+                <p className="text-base font-bold">
+                  ¥{totalPrice.toLocaleString("ja-JP")}
+                </p>
               </div>
               <div className="mt-4 flex gap-2">
-                <Button variant="outline" className="w-1/3" onClick={() => clearCart()}>
+                <Button
+                  variant="outline"
+                  className="w-1/3"
+                  onClick={() => clearCart()}
+                >
                   クリア
                 </Button>
-                <Button className="w-2/3" disabled={items.length === 0} onClick={placeOrder}>
+                <Button
+                  className="w-2/3"
+                  disabled={items.length === 0}
+                  onClick={placeOrder}
+                >
                   注文する
                 </Button>
               </div>

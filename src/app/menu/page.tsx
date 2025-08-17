@@ -18,6 +18,8 @@ import { useAtomValue } from "jotai";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const ALL_SECTIONS = "__ALL__";
+
 /* ---------- 型 ---------- */
 type Product = {
   productId: number;
@@ -28,6 +30,13 @@ type Product = {
   description?: string;
   taxIncluded?: boolean;
   docId: string;
+  sectionId?: string | null; // ← 追加：セクション紐付け
+};
+
+type Section = {
+  id: string; // sections の doc.id
+  name: string;
+  sortIndex: number;
 };
 
 type MyOrder = {
@@ -55,10 +64,14 @@ export default function MenuPage() {
   const siteKey = useAtomValue(siteKeyAtom);
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [sections, setSections] = useState<Section[]>([]); // ← 追加
+  const [selectedSectionId, setSelectedSectionId] =
+    useState<string>(ALL_SECTIONS);
+
   const [qty, setQty] = useState<Record<number, number>>({});
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [currentNo, setCurrentNo] = useState(0);
-  const [waitTimeText, setWaitTimeText] = useState("現在の待ち時間: 0分");
+  // const [waitTimeText, setWaitTimeText] = useState("現在の待ち時間: 0分");
 
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [lastOrderNo, setLastOrderNo] = useState<number | null>(null);
@@ -73,25 +86,30 @@ export default function MenuPage() {
 
   const localKey = siteKey ? `myOrders:${siteKey}` : "myOrders";
 
-  // 任意の useEffect 群のところに追加（siteKeyが確定してから購読）
+  const displayProducts = useMemo(() => {
+    if (sections.length === 0 || selectedSectionId === ALL_SECTIONS)
+      return products;
+    return products.filter((p) => p.sectionId === selectedSectionId);
+  }, [products, sections, selectedSectionId]);
+
+  // isOpen 購読
   useEffect(() => {
     if (!siteKey) {
-      setIsOpen(true); // siteKey未確定時は一旦OPEN扱い
+      setIsOpen(true);
       return;
     }
     const ref = doc(db, "siteSettingsEditable", siteKey);
-    const unsub = onSnapshot(
+    return onSnapshot(
       ref,
       (snap) => {
         const data = snap.data() as { isOpen?: boolean } | undefined;
-        setIsOpen(data?.isOpen ?? true); // 未設定ならOPEN
+        setIsOpen(data?.isOpen ?? true);
       },
       (e) => {
         console.error("isOpen onSnapshot error:", e);
         setIsOpen(true);
       }
     );
-    return () => unsub();
   }, [siteKey]);
 
   /* ---------- 初回復元 / 再表示復元 ---------- */
@@ -112,22 +130,60 @@ export default function MenuPage() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [localKey]);
 
-  /* ---------- 商品一覧（サイトの並び順 sortOrder 優先） ---------- */
+  /* ---------- セクション購読 ---------- */
+  useEffect(() => {
+    if (!siteKey) return;
+    const qy = query(
+      collection(db, "sections"),
+      where("siteKey", "==", siteKey),
+      orderBy("sortIndex", "asc")
+    );
+    return onSnapshot(
+      qy,
+      (snap) => {
+        const arr: Section[] = snap.docs.map((d, i) => {
+          const v = d.data() as any;
+          return {
+            id: d.id,
+            name: String(v.name ?? ""),
+            sortIndex:
+              typeof v.sortIndex === "number" ? v.sortIndex : (i + 1) * 1000,
+          };
+        });
+        setSections(arr);
+
+        // セクションが無い or 既存選択が消えたら「全セクション」に戻す
+        if (
+          arr.length === 0 ||
+          (selectedSectionId !== ALL_SECTIONS &&
+            !arr.some((s) => s.id === selectedSectionId))
+        ) {
+          setSelectedSectionId(ALL_SECTIONS);
+        }
+      },
+      (err) => console.error("sections onSnapshot error:", err)
+    );
+  }, [siteKey, selectedSectionId]);
+
+  /* ---------- 商品一覧（並び順 sortIndex 優先） ---------- */
   useEffect(() => {
     if (!siteKey) return;
 
-    setProductsReady(false); // ← siteKey切り替え時にリセット
+    setProductsReady(false);
 
     const qy = query(
       collection(db, "products"),
-      where("siteKey", "==", siteKey)
+      where("siteKey", "==", siteKey),
+      orderBy("sortIndex", "asc"),
+      orderBy("productId", "asc")
     );
+
     const unsub = onSnapshot(
       qy,
       (snap) => {
-        const items = snap.docs.map((d) => {
+        const list: Product[] = snap.docs.map((d) => {
           const v = d.data() as any;
-          const base: Product = {
+          return {
             productId: Number(v.productId ?? 0),
             name: String(v.name ?? ""),
             price: Number(v.price ?? 0),
@@ -136,19 +192,10 @@ export default function MenuPage() {
             description: v.description ? String(v.description) : "",
             taxIncluded: v.taxIncluded == null ? true : Boolean(v.taxIncluded),
             docId: d.id,
+            sectionId: typeof v.sectionId === "string" ? v.sectionId : null,
           };
-          const sortKey =
-            typeof v.sortOrder === "number" ? v.sortOrder : base.productId;
-          return { base, sortKey };
         });
 
-        items.sort((a, b) =>
-          a.sortKey !== b.sortKey
-            ? a.sortKey - b.sortKey
-            : a.base.productId - b.base.productId
-        );
-
-        const list = items.map((x) => x.base);
         setProducts(list);
 
         setQty((prev) => {
@@ -159,11 +206,11 @@ export default function MenuPage() {
           return next;
         });
 
-        setProductsReady(true); // ← ここで読み込み完了
+        setProductsReady(true);
       },
       (err) => {
         console.error("products onSnapshot error:", err);
-        setProductsReady(true); // エラーでもローディングは解除して空表示に
+        setProductsReady(true);
       }
     );
 
@@ -182,7 +229,7 @@ export default function MenuPage() {
       if (snap.empty) {
         setActiveOrders([]);
         setCurrentNo(0);
-        setWaitTimeText("現在の待ち時間: 0分");
+        // setWaitTimeText("現在の待ち時間: 0分");
         return;
       }
       const list = snap.docs.map((d) => d.data());
@@ -193,10 +240,10 @@ export default function MenuPage() {
         (s: number, o: any) => s + (o.totalItems || 0),
         0
       );
-      const mins = totalItemsAll * 5;
-      setWaitTimeText(
-        `現在の待ち時間: 約${Math.floor(mins / 60)}時間${mins % 60}分`
-      );
+      // const mins = totalItemsAll * 5;
+      // setWaitTimeText(
+      //   `現在の待ち時間: 約${Math.floor(mins / 60)}時間${mins % 60}分`
+      // );
     });
   }, [siteKey]);
 
@@ -270,7 +317,6 @@ export default function MenuPage() {
     setSubmitting(true);
     setConfirmOpen(false);
     try {
-      // siteKey を string に絞り込み
       const key = siteKey;
       if (!key) {
         alert(
@@ -279,7 +325,6 @@ export default function MenuPage() {
         return;
       }
 
-      // いまの未完了注文を取得（並びはクライアントでもOKだがここでは orderBy を使用）
       const snap = await getDocs(
         query(
           collection(db, "orders"),
@@ -290,10 +335,8 @@ export default function MenuPage() {
       );
       const current = snap.docs.map((d) => d.data());
 
-      // 店舗ごとの注文番号を採番
       const orderNo = await getNextOrderNoForSite(key);
 
-      // 選択された商品だけ抽出
       const items = products
         .filter((p) => (qty[p.productId] || 0) > 0)
         .map((p) => ({
@@ -304,7 +347,6 @@ export default function MenuPage() {
           subtotal: p.price * (qty[p.productId] || 0),
         }));
 
-      // 数量0なら中断
       if (items.length === 0) {
         alert("数量を入力してください。");
         return;
@@ -313,14 +355,12 @@ export default function MenuPage() {
       const totalItemsLocal = items.reduce((s, it) => s + it.quantity, 0);
       const totalPriceLocal = items.reduce((s, it) => s + it.subtotal, 0);
 
-      // 待ち時間（前にあるアイテム数×5分 + 自分のアイテム×5分）
       const itemsBefore = current.reduce(
         (s: number, o: any) => s + (o.totalItems || 0),
         0
       );
       const waitMin = itemsBefore * 5 + totalItemsLocal * 5;
 
-      // 注文ドキュメント作成
       const ref = await addDoc(collection(db, "orders"), {
         siteKey: key,
         orderNo,
@@ -331,7 +371,6 @@ export default function MenuPage() {
         createdAt: serverTimestamp(),
       });
 
-      // ローカル追跡用に保存
       const newMy: MyOrder = {
         orderNo,
         docId: ref.id,
@@ -346,7 +385,6 @@ export default function MenuPage() {
         return next;
       });
 
-      // 数量リセット & 完了モーダル
       setQty(Object.fromEntries(products.map((p) => [p.productId, 0])));
       setDoneOpen(true);
     } catch (e) {
@@ -357,7 +395,7 @@ export default function MenuPage() {
     }
   };
 
-  // 先頭のローディング判定を変更
+  // 先頭のローディング判定
   if (!productsReady) {
     return (
       <main className="min-h-[100dvh] grid place-items-center px-4">
@@ -404,7 +442,7 @@ export default function MenuPage() {
                   <span>現在作成中の注文番号:</span>
                   <span>{currentNo}</span>
                 </div>
-                <p className="mt-1 text-center font-bold">{waitTimeText}</p>
+                {/* <p className="mt-1 text-center font-bold">{waitTimeText}</p> */}
               </>
             ) : (
               <p className="py-3 text-center text-[17px] font-bold">
@@ -413,6 +451,26 @@ export default function MenuPage() {
             )}
           </div>
 
+          {/* セクションピッカー（セクションがあるときだけ表示） */}
+          {sections.length > 0 && (
+            <div className="mt-3">
+              <label className="block text-sm mb-1">セクション</label>
+              <select
+                value={selectedSectionId}
+                onChange={(e) => setSelectedSectionId(e.target.value)}
+                className="h-10 w-full rounded-md border px-2"
+              >
+                <option value={ALL_SECTIONS}>全セクション</option>
+                {/* ← 追加 */}
+                {sections.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* 自分の注文状況（ローカル） */}
           <div className="mt-2 space-y-2">
             {myOrders.map((o) => {
@@ -420,7 +478,7 @@ export default function MenuPage() {
               return (
                 <div key={o.orderNo} className="rounded-md bg-blue-50 p-2">
                   <p className="text-teal-700">
-                    ご注文番号 {o.orderNo} は{" "}
+                    ご注文番号 {o.orderNo} は
                     {remaining === 0
                       ? "現在お作りしています。"
                       : remaining === 1
@@ -437,9 +495,9 @@ export default function MenuPage() {
             })}
           </div>
 
-          {/* 商品一覧：2列グリッド／「カートに入れる」ボタン削除 */}
+          {/* 商品一覧：2列グリッド */}
           <div className="mt-6 grid grid-cols-2 gap-6">
-            {products.map((p) => {
+            {displayProducts.map((p) => {
               const count = qty[p.productId] || 0;
               return (
                 <div key={p.docId} className="rounded-md bg-white shadow-sm">
@@ -463,18 +521,16 @@ export default function MenuPage() {
                       {p.name}
                     </p>
                     <p className="text-xs text-gray-600">
-                      ￥{p.price.toLocaleString()}{" "}
+                      ￥{p.price.toLocaleString("ja-JP")}
                       {p.taxIncluded ? "(税込)" : "(税抜)"}
                     </p>
 
-                    {/* 説明は省スペースのため2行まで（line-clamp がなければ外してOK） */}
                     {p.description && (
                       <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-xs text-gray-700">
                         {p.description}
                       </p>
                     )}
 
-                    {/* 数量コントロールのみ（カートに入れるボタンは削除） */}
                     <div className="mt-2 flex items-center justify-between">
                       <button
                         type="button"
@@ -526,7 +582,7 @@ export default function MenuPage() {
                   <>
                     <span className="font-bold">{totalItems} 点</span>
                     <span className="text-gray-600">
-                      / ￥{totalPrice.toLocaleString()}
+                      / ￥{totalPrice.toLocaleString("ja-JP")}
                     </span>
                   </>
                 )}
@@ -555,13 +611,13 @@ export default function MenuPage() {
                       <span>{p.name}</span>
                       <span>
                         {qty[p.productId]}×￥{p.price}＝￥
-                        {(qty[p.productId] * p.price).toLocaleString()}
+                        {(qty[p.productId] * p.price).toLocaleString("ja-JP")}
                       </span>
                     </div>
                   ))}
               </div>
               <p className="mt-4 text-right text-base font-semibold">
-                合計 ￥{totalPrice.toLocaleString()}
+                合計 ￥{totalPrice.toLocaleString("ja-JP")}
               </p>
               <div className="mt-4 flex gap-2">
                 <button
@@ -606,9 +662,8 @@ export default function MenuPage() {
           {finishOpen && (
             <Modal
               onClose={() => setFinishOpen(false)}
-              title="ご注文ができあがりました！"
+              title="ご注文の商品ができあがりました！"
             >
-              <p className="mb-2 text-center">クレープの完成です 🎉</p>
               <div className="text-center text-3xl font-bold text-teal-700">
                 注文番号: {completedOrderNo}
               </div>
