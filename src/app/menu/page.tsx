@@ -19,13 +19,7 @@ import {
 } from "firebase/firestore";
 import { useAtomValue } from "jotai";
 import Image from "next/image";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 const ALL_SECTIONS = "__ALL__";
 
@@ -118,30 +112,30 @@ export default function MenuPage() {
     if (typeof window === "undefined") return;
 
     const ua = navigator.userAgent || "";
-    const ios = /iPhone|iPad|iPod/i.test(ua);
-    setIsIOS(ios);
+    // iPadOSが Mac UA を名乗るケースも拾う
+    const isiOS =
+      /iPhone|iPad|iPod/i.test(ua) ||
+      (ua.includes("Mac") && (navigator as any).maxTouchPoints > 1);
 
     const standalone =
-      (window.matchMedia?.("(display-mode: standalone)").matches ?? false) ||
+      window.matchMedia?.("(display-mode: standalone)").matches ||
       // iOS Safari 独自プロパティ
-      ((navigator as unknown as { standalone?: boolean }).standalone === true);
+      (navigator as unknown as { standalone?: boolean }).standalone === true;
+
+    setIsIOS(isiOS);
     setIsStandalone(standalone);
 
-    const hasApis =
-      "Notification" in window &&
-      "serviceWorker" in navigator &&
-      "PushManager" in window;
+    const hasSW = "serviceWorker" in navigator;
+    const hasPush = "PushManager" in window;
+    const hasNotif = "Notification" in window;
 
-    // iOS は PWA(standalone) の時だけ OK
-    const supported = hasApis && (!ios || standalone);
+    const supported = hasSW && hasPush && hasNotif && (!isiOS || standalone);
     setNotifSupported(supported);
     if (supported) setNotifGranted(Notification.permission === "granted");
 
     try {
       setIosSubscribed(!!localStorage.getItem("webpushSubId"));
-    } catch {
-      // no-op
-    }
+    } catch {}
   }, []);
 
   // 実際に通知を出す（前景フォールバック）
@@ -222,7 +216,7 @@ export default function MenuPage() {
           const name = typeof v.name === "string" ? v.name : "";
           const sortIndex =
             typeof v.sortIndex === "number" ? v.sortIndex : (i + 1) * 1000;
-        return {
+          return {
             id: d.id,
             name,
             sortIndex,
@@ -260,14 +254,11 @@ export default function MenuPage() {
       (snap) => {
         const list: Product[] = snap.docs.map((d) => {
           const v = d.data() as Record<string, unknown>;
-          const productId =
-            typeof v.productId === "number" ? v.productId : 0;
+          const productId = typeof v.productId === "number" ? v.productId : 0;
           const name = typeof v.name === "string" ? v.name : "";
           const price = typeof v.price === "number" ? v.price : 0;
-          const imageUri =
-            typeof v.imageUri === "string" ? v.imageUri : "";
-          const soldOut =
-            typeof v.soldOut === "boolean" ? v.soldOut : false;
+          const imageUri = typeof v.imageUri === "string" ? v.imageUri : "";
+          const soldOut = typeof v.soldOut === "boolean" ? v.soldOut : false;
           const description =
             typeof v.description === "string" ? v.description : "";
           const taxIncluded =
@@ -323,9 +314,7 @@ export default function MenuPage() {
         setCurrentNo(0);
         return;
       }
-      const list = snap.docs.map(
-        (d) => d.data() as ActiveOrder
-      );
+      const list = snap.docs.map((d) => d.data() as ActiveOrder);
       setActiveOrders(list);
       setCurrentNo(list[0]?.orderNo ?? 0);
     });
@@ -336,10 +325,7 @@ export default function MenuPage() {
     if (!activeOrders.length || !myOrders.length) return;
     const updated = myOrders.map((mo) => {
       const before = activeOrders.filter((o) => o.orderNo < mo.orderNo);
-      const itemsBefore = before.reduce(
-        (s, o) => s + (o.totalItems ?? 0),
-        0
-      );
+      const itemsBefore = before.reduce((s, o) => s + (o.totalItems ?? 0), 0);
       const selfItems =
         activeOrders.find((o) => o.orderNo === mo.orderNo)?.totalItems ??
         mo.totalItems;
@@ -453,10 +439,7 @@ export default function MenuPage() {
       const totalItemsLocal = items.reduce((s, it) => s + it.quantity, 0);
       const totalPriceLocal = items.reduce((s, it) => s + it.subtotal, 0);
 
-      const itemsBefore = current.reduce(
-        (s, o) => s + (o.totalItems ?? 0),
-        0
-      );
+      const itemsBefore = current.reduce((s, o) => s + (o.totalItems ?? 0), 0);
       const waitMin = itemsBefore * 5 + totalItemsLocal * 5;
 
       // 注文保存（FCMトークン / iOS WebPush 購読ID も一緒に）
@@ -552,13 +535,27 @@ export default function MenuPage() {
           {/* Push通知の設定（iPhone PWA と Android/PC を出し分け） */}
           <div className="mt-2">
             {isIOS ? (
-              // ---- iPhone（PWA）用 ----
-              isStandalone ? (
-                iosSubscribed ? (
-                  <div className="rounded-md border p-3 text-sm bg-white text-teal-700">
-                    通知は<strong>ON</strong>になっています。出来上がり時に通知します。
-                  </div>
-                ) : (
+              iosSubscribed ? (
+                <div className="rounded-md border p-3 text-sm bg-white text-teal-700">
+                  通知は<strong>ON</strong>
+                  になっています。出来上がり時に通知します。
+                </div>
+              ) : (
+                <>
+                  {!isStandalone && (
+                    <div className="mb-2 rounded-md border p-3 text-sm bg-white">
+                      <p className="font-medium mb-1">
+                        iPhoneで通知を使うには：
+                      </p>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Safariでこのページを開く</li>
+                        <li>
+                          共有 → <strong>ホーム画面に追加</strong>
+                        </li>
+                        <li>ホームのアイコンから起動して下のボタンを押す</li>
+                      </ol>
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="w-full rounded-md border px-3 py-2 text-sm"
@@ -568,7 +565,7 @@ export default function MenuPage() {
                           alert("店舗コードが未設定です。");
                           return;
                         }
-                        const id = await subscribeWebPush(siteKey); // iPhone PWA: 標準Web Push購読
+                        const id = await subscribeWebPush(siteKey);
                         if (id) {
                           setIosSubscribed(true);
                           alert("通知をONにしました。");
@@ -583,21 +580,9 @@ export default function MenuPage() {
                       }
                     }}
                   >
-                    🔔（iPhone PWA）完成時に通知を受け取る（通知をON）
+                    🔔（iPhone）完成時に通知を受け取る（通知をON）
                   </button>
-                )
-              ) : (
-                // PWAで開いていない（Safari直開き）場合の案内
-                <div className="rounded-md border p-3 text-sm bg-white">
-                  <p className="font-medium mb-1">iPhoneで通知を使うには：</p>
-                  <ol className="list-decimal ml-5 space-y-1">
-                    <li>Safariでこのページを開く</li>
-                    <li>
-                      共有メニュー → <strong>ホーム画面に追加</strong>
-                    </li>
-                    <li>ホームのアイコンから起動して、ここで通知をON</li>
-                  </ol>
-                </div>
+                </>
               )
             ) : (
               // ---- Android / PC（FCM）用 ----
@@ -611,7 +596,6 @@ export default function MenuPage() {
                   >
                     🔔 完成時に通知を受け取る（通知をON）
                   </button>
-                  {/* ボタン押下時だけFCMトークン取得 */}
                   <FcmInit
                     run={askNotif}
                     onToken={() => {

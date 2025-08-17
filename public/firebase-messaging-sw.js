@@ -27,8 +27,8 @@ messaging.onBackgroundMessage((payload) => {
   self.registration.showNotification(title, {
     body,
     tag,
-    icon: "/icons/icon-192x192.png", // 実在するパスに合わせる
-    badge: "/icons/badge-72x72.png",
+    icon: "/cordelyLogo.png", // 実在するパスに合わせる
+    badge: "/cordelyLogo.png",
     data: { url },                    // クリックで開くURL
   });
 });
