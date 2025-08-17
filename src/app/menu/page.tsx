@@ -641,11 +641,11 @@ export default function MenuPage() {
                       ? "次です。"
                       : `あと ${remaining} 番目です`}
                   </p>
-                  {remaining > 0 && (
+                  {/* {remaining > 0 && (
                     <p className="text-sm text-gray-600">
                       約 {o.waitMinutes ?? 0} 分ほどで出来上がります
                     </p>
-                  )}
+                  )} */}
                 </div>
               );
             })}
