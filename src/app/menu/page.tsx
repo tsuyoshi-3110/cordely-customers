@@ -510,27 +510,6 @@ export default function MenuPage() {
         </div>
       )}
 
-      {notifSupported && !notifGranted && (
-        <>
-          <button
-            type="button"
-            onClick={() => setAskNotif(true)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
-          >
-            🔔 完成時に通知を受け取る（通知をON）
-          </button>
-
-          {/* ボタン押下時にだけ走る */}
-          <FcmInit
-            run={askNotif}
-            onToken={() => {
-              setNotifGranted(true);
-              setAskNotif(false); // 1回走ったら停止
-            }}
-          />
-        </>
-      )}
-
       {!siteKey ? (
         <div className="min-h-[60vh] grid place-items-center px-4">
           <p className="text-sm text-gray-600">
@@ -556,7 +535,26 @@ export default function MenuPage() {
             )}
           </div>
 
-         
+          {notifSupported && !notifGranted && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAskNotif(true)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+              >
+                🔔 完成時に通知を受け取る（通知をON）
+              </button>
+
+              {/* ボタン押下時にだけ走る */}
+              <FcmInit
+                run={askNotif}
+                onToken={() => {
+                  setNotifGranted(true);
+                  setAskNotif(false); // 1回走ったら停止
+                }}
+              />
+            </>
+          )}
 
           {/* セクションピッカー（セクションがあるときだけ表示） */}
           {sections.length > 0 && (
