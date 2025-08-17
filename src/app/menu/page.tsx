@@ -556,17 +556,7 @@ export default function MenuPage() {
             )}
           </div>
 
-          {notifSupported && !notifGranted && (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={enableNotifications}
-                className="w-full rounded-md border px-3 py-2 text-sm"
-              >
-                🔔 完成時に通知を受け取る（通知をON）
-              </button>
-            </div>
-          )}
+         
 
           {/* セクションピッカー（セクションがあるときだけ表示） */}
           {sections.length > 0 && (
