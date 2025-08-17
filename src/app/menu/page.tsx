@@ -499,7 +499,7 @@ export default function MenuPage() {
   }
 
   return (
-    <main className="mx-auto max-w-md px-3 pb-28 pt-4">
+    <main className="mx-auto max-w-md px-3 pb-28 ">
       {isOpen === false && (
         <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-sm grid place-items-center">
           <p className="text-white text-6xl md:text-8xl font-extrabold tracking-widest select-none">
@@ -517,17 +517,19 @@ export default function MenuPage() {
       ) : (
         <>
           {/* ヘッダー（現在番号） */}
-          <div className="rounded-md bg-gradient-to-r from-teal-500 to-pink-500 p-3 text-white shadow">
-            {currentNo > 0 ? (
-              <div className="flex items-center justify-center gap-2 text-[17px] font-bold">
-                <span>現在作成中の注文番号:</span>
-                <span>{currentNo}</span>
-              </div>
-            ) : (
-              <p className="py-3 text-center text-[17px] font-bold">
-                すぐにお作りできます！
-              </p>
-            )}
+          <div className="sticky top-14 z-40 -mx-3">
+            <div className="rounded-none bg-gradient-to-r from-teal-500 to-pink-500 py-4 px-3 text-white shadow">
+              {currentNo > 0 ? (
+                <div className="flex items-center justify-center gap-2 text-xl font-semibold">
+                  <span>現在作成中の注文番号:</span>
+                  <span>{currentNo}</span>
+                </div>
+              ) : (
+                <p className="py-0.5 text-center text-xl font-semibold">
+                  すぐにお作りできます！
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Push通知の設定（iPhone PWA と Android/PC を出し分け） */}
@@ -609,13 +611,13 @@ export default function MenuPage() {
           {/* セクションピッカー */}
           {sections.length > 0 && (
             <div className="mt-3">
-              <label className="block text-sm mb-1">セクション</label>
+              <label className="block text-sm mb-1">カテゴリー</label>
               <select
                 value={selectedSectionId}
                 onChange={(e) => setSelectedSectionId(e.target.value)}
                 className="h-10 w-full rounded-md border px-2"
               >
-                <option value={ALL_SECTIONS}>全セクション</option>
+                <option value={ALL_SECTIONS}>商品一覧</option>
                 {sections.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -664,8 +666,15 @@ export default function MenuPage() {
                       sizes="(max-width: 640px) 50vw, 240px"
                     />
                     {p.soldOut && (
-                      <div className="absolute left-0 top-0 z-10 h-7 w-full bg-red-600/90 text-center text-xs font-bold text-white">
-                        <span className="leading-7">SOLD OUT</span>
+                      <div className="absolute inset-0 z-10 grid place-items-center bg-black/40">
+                        <Image
+                          src="/images/soldOut.png"
+                          alt="SOLD OUT"
+                          width={200} // お好みで調整
+                          height={200} // お好みで調整
+                          className="w-2/3 max-w-[220px] h-auto pointer-events-none select-none object-contain"
+                          priority
+                        />
                       </div>
                     )}
                   </div>
