@@ -1,18 +1,14 @@
 "use client";
 
-import { Suspense } from "react";
-import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useSetAtom } from "jotai";
 import { siteKeyAtom } from "@/lib/atoms/siteKeyAtom";
 import { resolveSiteKeyByCode } from "@/lib/resolveSiteKey";
+import { useSetAtom } from "jotai";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
-// ← 静的化を避ける（どちらか1つでOK。まずは dynamic を推奨）
 export const dynamic = "force-dynamic";
-// export const revalidate = 0;
 
 export default function Page() {
-  // useSearchParams を使う部分を Suspense で包む
   return (
     <Suspense fallback={<div className="p-6">Loading…</div>}>
       <PageInner />
@@ -29,12 +25,15 @@ function PageInner() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // 入力値が siteKey っぽいかを簡易判定（英数/ハイフン/アンダースコア）
+  const looksLikeSiteKey = (v: string) => /^[a-zA-Z0-9_-]{3,64}$/.test(v);
+
   useEffect(() => {
     (async () => {
       const urlSiteKey = search.get("siteKey");
       if (urlSiteKey) {
         setSiteKey(urlSiteKey);
-        router.replace("/menu");
+        router.replace(`/menu?siteKey=${encodeURIComponent(urlSiteKey)}`);
         return;
       }
 
@@ -43,30 +42,56 @@ function PageInner() {
 
       setLoading(true);
       setErr(null);
-      const key = await resolveSiteKeyByCode(urlCode);
-      setLoading(false);
-      if (!key) {
-        setErr("無効なコードです。店舗のQRコードをご確認ください。");
-        return;
+      try {
+        // ★ codeにsiteKeyが入っていても動くように
+        if (looksLikeSiteKey(urlCode)) {
+          setSiteKey(urlCode);
+          router.replace(`/menu?siteKey=${encodeURIComponent(urlCode)}`);
+          return;
+        }
+        const key = await resolveSiteKeyByCode(urlCode);
+        if (!key) {
+          setErr("無効なコードです。店舗のQRコードをご確認ください。");
+          return;
+        }
+        setSiteKey(key);
+        router.replace(`/menu?siteKey=${encodeURIComponent(key)}`);
+      } catch (e) {
+        console.error(e);
+        setErr("通信に失敗しました。時間をおいてお試しください。");
+      } finally {
+        setLoading(false);
       }
-      setSiteKey(key);
-      router.replace("/menu");
     })();
   }, [search, router, setSiteKey]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code.trim()) return;
+    const input = code.trim();
+    if (!input) return;
+
     setLoading(true);
     setErr(null);
-    const key = await resolveSiteKeyByCode(code.trim());
-    setLoading(false);
-    if (!key) {
-      setErr("無効なコードです。");
-      return;
+    try {
+      // ★ フォームでもsiteKey直入力を許可
+      if (looksLikeSiteKey(input)) {
+        setSiteKey(input);
+        router.push(`/menu?siteKey=${encodeURIComponent(input)}`);
+        return;
+      }
+      const key = await resolveSiteKeyByCode(input);
+      if (!key) {
+        setErr("無効なコードです。");
+        return;
+      }
+      setSiteKey(key);
+      router.push(`/menu?siteKey=${encodeURIComponent(key)}`);
+    } catch (e) {
+      console.error(e);
+      setErr("通信に失敗しました。");
+    } finally {
+      setLoading(false);
     }
-    setSiteKey(key);
-    router.push("/menu");
   };
 
   return (
