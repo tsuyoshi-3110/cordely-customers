@@ -4,8 +4,8 @@
 
   // ESLintの自動修正（未使用import削除 等）
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": true,
-    "source.organizeImports": true
+    "source.fixAll.eslint": "explicit",
+    "source.organizeImports": "explicit"
   },
 
   // Tailwind IntelliSense が cn/cva 内も認識できるように（任意）
