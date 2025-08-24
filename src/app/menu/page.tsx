@@ -690,7 +690,7 @@ export default function MenuPage() {
                     </p>
 
                     {p.description && (
-                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-xs text-gray-700">
+                      <p className="mt-1 whitespace-pre-wrap break-words text-xs text-gray-700">
                         {p.description}
                       </p>
                     )}
