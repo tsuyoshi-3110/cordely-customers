@@ -674,6 +674,7 @@ export default function MenuPage() {
                           height={200} // お好みで調整
                           className="w-2/3 max-w-[220px] h-auto pointer-events-none select-none object-contain"
                           priority
+                          unoptimized
                         />
                       </div>
                     )}
